@@ -290,7 +290,7 @@ export default function App() {
   const totalOrdersCount = filteredOrders.length;
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-8 font-sans text-sm">
+    <div className="flex-1 w-full bg-gray-50 pb-8 font-sans text-sm overflow-y-auto">
       {/* Header Compact */}
       <div className="bg-white border-b sticky top-0 z-30 px-3 py-2 shadow-sm/50 backdrop-blur-md bg-white/95">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
