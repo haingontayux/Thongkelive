@@ -1,14 +1,13 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { fetchSalesData, getMockData, updateCustomerNames, getScriptUrl, setScriptUrl } from './services/dataService';
-import { batchNormalizeNames } from './services/geminiService';
 import { Order, DailyStat, LoadingState, ProductStat } from './types';
 import { StatsCard } from './components/StatsCard';
 import { RevenueChart, ProductPieChart } from './components/Charts';
 import { 
-  LayoutDashboard, TrendingUp, ShoppingBag, DollarSign, RefreshCw, 
-  AlertCircle, Facebook, X, Clock, Pencil, Save, Settings, Wand2, Sparkles, Tag, RotateCcw,
-  Layers, ChevronRight, Package, BarChart3, Calendar, PieChart, FileText, Users, CalendarRange,
-  MoreHorizontal, Search
+  TrendingUp, ShoppingBag, DollarSign, RefreshCw, 
+  Facebook, X, Pencil, Save, Settings, Tag,
+  ChevronRight, Package, BarChart3, CalendarRange,
+  Search, PieChart, Users, Calendar
 } from 'lucide-react';
 
 export default function App() {
@@ -19,12 +18,11 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   
   const [isUpdating, setIsUpdating] = useState(false);
-  const [normalizationStatus, setNormalizationStatus] = useState<string>(''); // '' | 'loading' | 'done'
 
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [activeFilter, setActiveFilter] = useState<string>('today');
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  // Removed showDatePicker state as we show it always
   
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -44,14 +42,12 @@ export default function App() {
 
   const scrollToSection = (ref: React.RefObject<HTMLDivElement>) => {
     if (ref.current) {
-      // Trừ đi chiều cao header một chút để không bị che
       const yOffset = -70; 
       const y = ref.current.getBoundingClientRect().top + window.pageYOffset + yOffset;
       window.scrollTo({ top: y, behavior: 'smooth' });
     }
   };
 
-  // Hàm helper lấy chuỗi YYYY-MM-DD theo giờ địa phương
   const getLocalDateString = (d: Date) => {
       const yyyy = d.getFullYear();
       const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -63,9 +59,6 @@ export default function App() {
     setActiveFilter(type);
     const today = new Date();
     
-    // Nếu chọn filter định sẵn, ẩn date picker đi cho gọn
-    if (type !== 'custom') setShowDatePicker(false);
-
     if (type === 'today') {
         const str = getLocalDateString(today);
         setStartDate(str);
@@ -84,8 +77,7 @@ export default function App() {
         setStartDate(''); 
         setEndDate('');
     } else if (type === 'custom') {
-        setShowDatePicker(true);
-        // Không set ngày ở đây, để user tự chọn input
+        // Just set active state, inputs are always visible
     }
   };
 
@@ -93,32 +85,6 @@ export default function App() {
       setStartDate(start);
       setEndDate(end);
       setActiveFilter('custom');
-  };
-
-  const handleAiNormalize = async () => {
-    if (orders.length === 0) return;
-    setNormalizationStatus('loading');
-    try {
-      const rawNames = orders.map(o => o.customerName);
-      // Gọi service AI để chuẩn hóa danh sách tên
-      const normalizedMap = await batchNormalizeNames(rawNames);
-      
-      // Cập nhật lại state orders với tên mới
-      const updatedOrders = orders.map(o => ({
-        ...o,
-        customerName: normalizedMap[o.customerName] || o.customerName
-      }));
-      
-      setOrders(updatedOrders);
-      setNormalizationStatus('done');
-      
-      // Reset status sau 3s
-      setTimeout(() => setNormalizationStatus(''), 3000);
-    } catch (e) {
-      console.error("Normalization failed", e);
-      setNormalizationStatus('');
-      alert("Lỗi khi chuẩn hóa tên bằng AI.");
-    }
   };
 
   const loadData = async (isAutoRefresh = false) => {
@@ -180,7 +146,6 @@ export default function App() {
         });
         await updateCustomerNames(updates);
         
-        // Cập nhật local state ngay lập tức
         const updatedOrders = orders.map(o => {
             if (rows.some(r => r.id === o.id)) {
                 return { ...o, customerName: newName };
@@ -208,42 +173,32 @@ export default function App() {
     });
   }, [orders, startDate, endDate, activeFilter]);
 
-  // Logic thống kê sản phẩm theo MỨC GIÁ (Unit Price)
-  const topProducts = useMemo(() => {
-    const priceMap = new Map<number, number>(); // Price -> Quantity
+  // Logic thống kê sản phẩm theo MỨC GIÁ
+  const priceDistributionStats = useMemo(() => {
+    const priceMap = new Map<number, number>();
 
     filteredOrders.forEach(o => {
-      // Bỏ qua đơn 0 lượng
       if (o.quantity <= 0) return;
-
-      // Tính đơn giá trung bình: Tổng tiền / Tổng số lượng
       let unitPrice = 0;
       if (o.amount > 0) {
-         // Làm tròn đơn giá đến hàng nghìn (ví dụ 38.999 -> 39.000) để nhóm dễ hơn
          unitPrice = Math.round((o.amount / o.quantity) / 1000) * 1000;
       }
-
-      // Cộng dồn số lượng vào mức giá tương ứng
       const currentQty = priceMap.get(unitPrice) || 0;
       priceMap.set(unitPrice, currentQty + o.quantity);
     });
 
-    // Chuyển Map thành Array và sắp xếp
     const result: ProductStat[] = Array.from(priceMap.entries())
         .map(([price, quantity]) => {
-            // Tạo tên hiển thị dạng "39k", "150k"
             const name = price === 0 
-                ? "0đ (Tặng)" 
+                ? "Quà tặng" 
                 : `${(price / 1000).toLocaleString('vi-VN')}k`; 
-            
             return { name, quantity };
         })
-        .sort((a, b) => b.quantity - a.quantity) // Sắp xếp giảm dần theo số lượng
-        .slice(0, 10); // Lấy top 10
+        .sort((a, b) => b.quantity - a.quantity)
+        .slice(0, 10);
 
     return result;
   }, [filteredOrders]);
-
 
   const groupedOrders = useMemo(() => {
     const groups: Record<string, Order> = {};
@@ -261,7 +216,6 @@ export default function App() {
     return Object.values(groups).sort((a,b) => b.amount - a.amount);
   }, [filteredOrders]);
 
-  // Filter customers based on search
   const displayedCustomers = useMemo(() => {
     if (!searchTerm.trim()) return groupedOrders;
     const lowerTerm = searchTerm.toLowerCase();
@@ -284,8 +238,6 @@ export default function App() {
   }, [filteredOrders]);
 
   const totalRevenue = dailyStats.reduce((s, d) => s + d.revenue, 0);
-  
-  // Tính tổng số lượng sản phẩm (cái) và tổng số đơn hàng (dòng) của ngày/bộ lọc hiện tại
   const totalItemsSold = useMemo(() => filteredOrders.reduce((acc, o) => acc + o.quantity, 0), [filteredOrders]);
   const totalOrdersCount = filteredOrders.length;
 
@@ -307,24 +259,10 @@ export default function App() {
             </div>
           </div>
           <div className="flex gap-1">
-             <button 
-              onClick={handleAiNormalize} 
-              disabled={normalizationStatus === 'loading' || orders.length === 0}
-              className={`p-1.5 rounded-lg transition-all flex items-center gap-2 ${normalizationStatus === 'loading' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-400 hover:bg-indigo-50 hover:text-indigo-600'}`}
-              title="Dùng AI chuẩn hóa tên khách hàng"
-            >
-              {normalizationStatus === 'loading' ? <RefreshCw size={18} className="animate-spin"/> : <Sparkles size={18}/>}
-            </button>
-            <div className="w-px h-7 bg-gray-200 mx-0.5"></div>
             <button onClick={() => loadData()} className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600 rounded-lg transition-all"><RefreshCw size={18}/></button>
             <button onClick={openSettings} className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600 rounded-lg transition-all"><Settings size={18}/></button>
           </div>
         </div>
-        {normalizationStatus === 'done' && (
-           <div className="absolute top-full left-0 w-full bg-green-50 text-green-700 text-[10px] py-1 text-center font-bold border-b border-green-100 animate-in slide-in-from-top-2">
-             Đã chuẩn hóa!
-           </div>
-        )}
       </div>
 
       <div className="max-w-7xl mx-auto px-3 mt-3 space-y-3">
@@ -336,38 +274,31 @@ export default function App() {
                         {f === 'today' ? 'Hôm nay' : f === 'yesterday' ? 'Hôm qua' : f === 'thisMonth' ? 'Tháng này' : 'Tất cả'}
                     </button>
                 ))}
-                
-                <div className="h-5 w-px bg-gray-300 mx-0.5"></div>
-
-                <button 
-                    onClick={() => applyDateFilter('custom')} 
-                    className={`whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] font-bold transition-all border flex items-center gap-1.5 ${activeFilter === 'custom' ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-                >
-                    <CalendarRange size={12} /> Tùy chọn
-                </button>
             </div>
 
-            {/* Date Picker Collapse */}
-            {showDatePicker && (
-                <div className="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-blue-100 w-fit shadow-sm animate-in fade-in slide-in-from-top-1">
+            {/* Always visible Date Inputs */}
+            <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-gray-200 w-full shadow-sm">
+                <div className="flex-1 relative">
                     <input 
                         type="date" 
-                        className="text-[11px] font-bold bg-gray-50 border border-gray-200 rounded px-1.5 py-1 outline-none focus:border-blue-500 focus:bg-white transition-colors text-gray-700"
+                        className="w-full text-xs font-bold bg-gray-50 border border-gray-100 rounded-lg px-2 py-2.5 outline-none focus:border-blue-500 focus:bg-white transition-colors text-gray-800 text-center"
                         value={startDate}
                         onChange={(e) => handleCustomDateChange(e.target.value, endDate)}
                     />
-                    <span className="text-gray-300 text-[10px]">đến</span>
+                </div>
+                <span className="text-gray-300 text-[10px] font-medium">đến</span>
+                <div className="flex-1 relative">
                      <input 
                         type="date" 
-                        className="text-[11px] font-bold bg-gray-50 border border-gray-200 rounded px-1.5 py-1 outline-none focus:border-blue-500 focus:bg-white transition-colors text-gray-700"
+                        className="w-full text-xs font-bold bg-gray-50 border border-gray-100 rounded-lg px-2 py-2.5 outline-none focus:border-blue-500 focus:bg-white transition-colors text-gray-800 text-center"
                         value={endDate}
                         onChange={(e) => handleCustomDateChange(startDate, e.target.value)}
                     />
                 </div>
-            )}
+            </div>
         </div>
 
-        {/* Stats Grid - 2 Columns Layout - Compact Gap */}
+        {/* Stats Grid - 2 Columns Layout */}
         <div className="grid grid-cols-2 gap-2">
           <StatsCard 
             title="Doanh Thu" 
@@ -388,7 +319,7 @@ export default function App() {
             value={totalOrdersCount.toString() + ' đơn'} 
             icon={ShoppingBag} 
             color="orange" 
-            onClick={() => scrollToSection(customerRef)} // Đã sửa link tới customerRef
+            onClick={() => scrollToSection(customerRef)}
           />
           <StatsCard 
             title="Khách Gộp" 
@@ -399,13 +330,13 @@ export default function App() {
           />
         </div>
 
-        {/* Charts & Product Stats Section */}
+        {/* Charts Section - Re-designed */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Revenue Section Ref */}
-          <div ref={revenueRef} className="lg:col-span-2 bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[250px]">
-            <h3 className="font-bold text-gray-800 mb-1 flex items-center gap-2 text-sm">
-                <div className="p-1 bg-blue-50 rounded text-blue-600"><TrendingUp size={16}/></div> 
-                Xu hướng doanh thu
+          {/* Revenue Chart */}
+          <div ref={revenueRef} className="lg:col-span-2 bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[280px]">
+            <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2 text-sm">
+                <div className="p-1.5 bg-blue-50 rounded text-blue-600"><TrendingUp size={16}/></div> 
+                Biểu đồ doanh thu
             </h3>
             <div className="flex-1 w-full overflow-hidden">
                 {dailyStats.length > 0 ? (
@@ -413,58 +344,52 @@ export default function App() {
                 ) : (
                     <div className="h-full flex items-center justify-center text-gray-400 text-xs flex-col gap-2">
                         <BarChart3 size={24} className="opacity-20"/>
-                        Chưa có dữ liệu biểu đồ
+                        Chưa có dữ liệu
                     </div>
                 )}
             </div>
           </div>
           
-          {/* Product Section Ref */}
-          <div ref={productRef} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col relative overflow-hidden h-[300px]">
-            <div className="flex justify-between items-start mb-2 z-10 relative">
-              <div>
-                  <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-                    <div className="p-1 bg-orange-50 rounded text-orange-600"><Tag size={16}/></div>
-                    Phân loại mức giá
-                  </h3>
-              </div>
+          {/* Product Price Segment Chart */}
+          <div ref={productRef} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[320px] relative overflow-hidden">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
+                <div className="p-1.5 bg-indigo-50 rounded text-indigo-600"><Tag size={16}/></div>
+                Phân khúc giá bán
+              </h3>
             </div>
 
-            <div className="flex-1 flex flex-col z-10 relative overflow-hidden">
-               {/* Summary Blocks Restored & Compact */}
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                  <div onClick={() => scrollToSection(productRef)} className="bg-orange-50/80 p-2 rounded-lg border border-orange-100 flex flex-col cursor-pointer active:scale-95 transition-transform">
-                      <div className="flex items-center gap-1.5 mb-0.5 text-orange-600">
-                         <Package size={12} />
-                         <span className="text-[10px] font-bold uppercase tracking-wider">Đã bán</span>
-                      </div>
-                      <span className="text-base font-black text-gray-900 leading-none">{totalItemsSold} <span className="text-[10px] font-semibold text-gray-400">cái</span></span>
+            <div className="flex-1 flex flex-col relative z-10">
+              {/* Summary Stats Overlay - MADE BIGGER */}
+              <div className="flex items-center justify-between mb-4 px-2 mt-1">
+                  <div className="flex flex-col">
+                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                         <Package size={12} className="text-orange-500"/> Đã bán
+                      </span>
+                      <span className="text-3xl font-black text-orange-600 leading-none">{totalItemsSold}</span>
                   </div>
-                  <div onClick={() => scrollToSection(customerRef)} className="bg-blue-50/80 p-2 rounded-lg border border-blue-100 flex flex-col cursor-pointer active:scale-95 transition-transform">
-                      <div className="flex items-center gap-1.5 mb-0.5 text-blue-600">
-                         <FileText size={12} />
-                         <span className="text-[10px] font-bold uppercase tracking-wider">Tổng đơn</span>
-                      </div>
-                      <span className="text-base font-black text-gray-900 leading-none">{totalOrdersCount} <span className="text-[10px] font-semibold text-gray-400">đơn</span></span>
+                  <div className="w-px h-10 bg-gray-100 mx-4"></div>
+                  <div className="flex flex-col text-right">
+                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center justify-end gap-1">
+                         Đơn hàng <ShoppingBag size={12} className="text-blue-500"/>
+                      </span>
+                      <span className="text-3xl font-black text-blue-600 leading-none">{totalOrdersCount}</span>
                   </div>
               </div>
 
-              {topProducts.length > 0 ? (
-                <div className="flex-1 w-full">
-                    <ProductPieChart data={topProducts} />
+              {priceDistributionStats.length > 0 ? (
+                <div className="flex-1 w-full min-h-0">
+                    <ProductPieChart data={priceDistributionStats} />
                 </div>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center p-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-                  <Package className="text-gray-300 mb-2" size={20} />
-                  <p className="text-[10px] text-gray-500">
-                    Chưa có dữ liệu sản phẩm.
-                  </p>
+                <div className="h-full flex flex-col items-center justify-center text-center bg-gray-50 rounded-lg border-dashed border border-gray-200">
+                  <PieChart className="text-gray-300 mb-2" size={24} />
+                  <p className="text-[10px] text-gray-500">Chưa có số liệu</p>
                 </div>
               )}
             </div>
-            
-            {/* Background decoration */}
-            <div className="absolute -top-10 -right-10 w-32 h-32 bg-orange-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+            {/* Decoration */}
+            <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-50 rounded-full blur-3xl opacity-60 pointer-events-none"></div>
           </div>
         </div>
 
@@ -504,15 +429,12 @@ export default function App() {
             {displayedCustomers.map((o) => (
                <div key={o.id} onClick={() => setSelectedOrder(o)} className="p-3 flex items-center justify-between hover:bg-gray-50 active:bg-blue-50 transition-colors cursor-pointer group">
                   <div className="flex items-center gap-3 overflow-hidden">
-                     {/* Avatar */}
                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-blue-600 font-black text-xs shrink-0 shadow-inner">
                         {o.customerName.charAt(0).toUpperCase()}
                      </div>
-                     {/* Text Info */}
                      <div className="flex-1 min-w-0">
                         <h4 className="font-bold text-gray-900 text-sm truncate flex items-center gap-1">
                             {o.customerName}
-                            {/* Highlight if matched search */}
                             {searchTerm && o.customerName.toLowerCase().includes(searchTerm.toLowerCase()) && (
                                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"></span>
                             )}
@@ -521,7 +443,6 @@ export default function App() {
                      </div>
                   </div>
 
-                  {/* Right Side Stats */}
                   <div className="flex items-center gap-2 shrink-0">
                      <div className="text-right">
                         <div className="text-[13px] font-black text-blue-600">{o.amount.toLocaleString('vi-VN')}đ</div>
@@ -562,13 +483,12 @@ export default function App() {
           </div>
       )}
 
-      {/* Detail Modal - Compact */}
+      {/* Detail Modal */}
       {selectedOrder && (
           <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedOrder(null)}>
               <div className="bg-white rounded-t-3xl md:rounded-3xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto shadow-2xl animate-in slide-in-from-bottom duration-300" onClick={e => e.stopPropagation()}>
                   <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5 md:hidden"></div>
                   
-                  {/* Header Modal */}
                   <div className="flex justify-between items-start mb-5">
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 bg-blue-600 text-white rounded-xl flex items-center justify-center font-bold text-xl shadow-lg shadow-blue-100">{selectedOrder.customerName[0]}</div>
@@ -592,7 +512,6 @@ export default function App() {
                       <button onClick={() => setSelectedOrder(null)} className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"><X size={18}/></button>
                   </div>
 
-                  {/* Summary Box in Modal */}
                   <div className="grid grid-cols-2 gap-2 mb-5">
                     <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-center">
                         <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mb-0.5">Tổng tiền</span>
@@ -608,15 +527,12 @@ export default function App() {
                   <div className="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
                       {(selectedOrder.subOrders || [selectedOrder]).map((sub, i) => (
                           <div key={i} className="flex gap-3 p-3 border-b border-gray-100 last:border-0 items-start hover:bg-white transition-colors">
-                              {/* Content & Price Column */}
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-medium text-gray-800 leading-snug break-words">{sub.details || "Không có ghi chú"}</p>
                                 <div className="text-[10px] font-bold text-blue-600 mt-1">
                                   {sub.amount > 0 ? `${sub.amount.toLocaleString('vi-VN')} đ` : ''}
                                 </div>
                               </div>
-
-                              {/* Quantity Column */}
                               <div className="shrink-0 bg-white border border-gray-200 px-1.5 py-0.5 rounded text-[10px] font-black text-gray-600 shadow-sm">
                                 x{sub.quantity}
                               </div>
