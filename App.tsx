@@ -22,7 +22,6 @@ export default function App() {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [activeFilter, setActiveFilter] = useState<string>('today');
-  // Removed showDatePicker state as we show it always
   
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -55,29 +54,41 @@ export default function App() {
   };
 
   const toggleFullScreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen();
+    const doc = document as any;
+    const docEl = document.documentElement as any;
+
+    const requestFullScreen = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullScreen || docEl.msRequestFullscreen;
+    const cancelFullScreen = doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+
+    if (!doc.fullscreenElement && !doc.mozFullScreenElement && !doc.webkitFullscreenElement && !doc.msFullscreenElement) {
+      if (requestFullScreen) requestFullScreen.call(docEl);
     } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
+      if (cancelFullScreen) cancelFullScreen.call(doc);
     }
   };
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      const doc = document as any;
+      setIsFullscreen(!!(doc.fullscreenElement || doc.mozFullScreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement));
     };
 
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 60);
+      // Threshold 50px
+      setIsScrolled(window.scrollY > 50);
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
     window.addEventListener('scroll', handleScroll, { passive: true });
     
     return () => {
         document.removeEventListener('fullscreenchange', handleFullscreenChange);
+        document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+        document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
         window.removeEventListener('scroll', handleScroll);
     }
   }, []);
@@ -279,37 +290,55 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 pb-8 font-sans text-sm">
       {/* Header Compact */}
       <div className="bg-white border-b sticky top-0 z-30 px-3 py-2 shadow-sm/50 backdrop-blur-md bg-white/95">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-2 overflow-hidden transition-all duration-300">
-            <div className={`bg-gradient-to-br from-blue-600 to-blue-700 p-1.5 rounded-lg text-white shadow-md shadow-blue-200 shrink-0 transition-transform ${isScrolled ? 'scale-90' : ''}`}>
+        <div className="max-w-7xl mx-auto flex justify-between items-center h-10">
+          <div className="flex items-center gap-2 overflow-hidden relative w-full">
+            
+            {/* Logo Icon - Always visible, animates scale */}
+            <div className={`bg-gradient-to-br from-blue-600 to-blue-700 p-1.5 rounded-lg text-white shadow-md shadow-blue-200 shrink-0 transition-all duration-300 z-10 ${isScrolled ? 'scale-90' : 'scale-100'}`}>
               <BarChart3 size={18} />
             </div>
             
-            {isScrolled ? (
-               <div className="flex flex-col animate-in slide-in-from-bottom-2 fade-in duration-300">
-                  <div className="flex items-center gap-3">
+            {/* Header Content Container */}
+            <div className="relative flex-1 h-full flex items-center">
+                
+                {/* 1. Default Title State */}
+                <div 
+                    className={`absolute left-0 transition-all duration-300 ease-in-out flex flex-col justify-center ${
+                        isScrolled 
+                        ? 'opacity-0 -translate-y-4 pointer-events-none' 
+                        : 'opacity-100 translate-y-0'
+                    }`}
+                >
+                    <h1 className="text-base font-bold text-gray-900 leading-tight whitespace-nowrap">Báo Cáo</h1>
+                    <p className="text-[10px] text-gray-500 font-semibold flex items-center gap-1">
+                        <span className={`w-1.5 h-1.5 rounded-full ${loadingState === LoadingState.LOADING ? 'bg-yellow-400 animate-pulse' : 'bg-green-500'}`}></span>
+                        {lastUpdated.toLocaleTimeString('vi-VN')}
+                    </p>
+                </div>
+
+                {/* 2. Scrolled Stats State */}
+                <div 
+                    className={`absolute left-0 transition-all duration-300 ease-in-out flex items-center gap-3 ${
+                        isScrolled 
+                        ? 'opacity-100 translate-y-0' 
+                        : 'opacity-0 translate-y-4 pointer-events-none'
+                    }`}
+                >
                      <div className="flex flex-col">
-                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tight">Doanh thu</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tight leading-none mb-0.5">Doanh thu</span>
                         <span className="text-sm font-black text-blue-600 leading-none">{totalRevenue.toLocaleString('vi-VN')}</span>
                      </div>
                      <div className="w-px h-5 bg-gray-200"></div>
                      <div className="flex flex-col">
-                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tight">SL Bán</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tight leading-none mb-0.5">SL Bán</span>
                         <span className="text-sm font-black text-orange-600 leading-none">{totalItemsSold}</span>
                      </div>
-                  </div>
-               </div>
-            ) : (
-                <div className="animate-in slide-in-from-top-2 fade-in duration-300">
-                  <h1 className="text-base font-bold text-gray-900 leading-tight">Báo Cáo</h1>
-                  <p className="text-[10px] text-gray-500 font-semibold flex items-center gap-1">
-                    <span className={`w-1.5 h-1.5 rounded-full ${loadingState === LoadingState.LOADING ? 'bg-yellow-400 animate-pulse' : 'bg-green-500'}`}></span>
-                    {lastUpdated.toLocaleTimeString('vi-VN')}
-                  </p>
                 </div>
-            )}
+
+            </div>
           </div>
-          <div className="flex gap-1 shrink-0">
+
+          <div className="flex gap-1 shrink-0 ml-2">
             <button 
                 onClick={toggleFullScreen} 
                 className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600 rounded-lg transition-all"
